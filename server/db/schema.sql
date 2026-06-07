@@ -1,100 +1,128 @@
--- ============================================================
--- Inventory Management System — Database Schema (PostgreSQL)
--- Version 4
--- ============================================================
+-- Pets&Claws MVP 1 schema (PostgreSQL)
 
--- 1. Users (synced from Clerk on first authenticated request)
 CREATE TABLE IF NOT EXISTS users (
-  id         VARCHAR(255) PRIMARY KEY,            -- Clerk user ID
-  email      VARCHAR(255) UNIQUE NOT NULL,
-  role       VARCHAR(50)  DEFAULT 'staff',        -- 'admin' | 'manager' | 'staff'
-  created_at TIMESTAMP    DEFAULT NOW()
+  id SERIAL PRIMARY KEY,
+  username VARCHAR(80) UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  role VARCHAR(30) NOT NULL DEFAULT 'admin' CHECK (role IN ('admin')),
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW()
 );
 
--- 2. Categories
 CREATE TABLE IF NOT EXISTS categories (
-  id          SERIAL        PRIMARY KEY,
-  name        VARCHAR(100)  NOT NULL UNIQUE,
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL UNIQUE,
   description TEXT,
-  created_at  TIMESTAMP     DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT NOW()
 );
 
--- 3. Suppliers
 CREATE TABLE IF NOT EXISTS suppliers (
-  id         SERIAL        PRIMARY KEY,
-  name       VARCHAR(200)  NOT NULL,
-  email      VARCHAR(255),
-  phone      VARCHAR(50),
-  address    TEXT,
-  created_at TIMESTAMP     DEFAULT NOW()
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(200) NOT NULL,
+  email VARCHAR(255),
+  phone VARCHAR(50),
+  address TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
 );
 
--- 4. Inventory Items
 CREATE TABLE IF NOT EXISTS items (
-  id           SERIAL          PRIMARY KEY,
-  name         VARCHAR(255)    NOT NULL,
-  sku          VARCHAR(100)    UNIQUE,
-  description  TEXT,
-  category_id  INTEGER         REFERENCES categories(id) ON DELETE SET NULL,
-  supplier_id  INTEGER         REFERENCES suppliers(id)  ON DELETE SET NULL,
-  quantity     INTEGER         NOT NULL DEFAULT 0,
-  min_quantity INTEGER         NOT NULL DEFAULT 5,        -- threshold for low_stock
-  unit_price   DECIMAL(10,2),
-  status       VARCHAR(20)     NOT NULL DEFAULT 'in_stock'
-               CHECK (status IN ('in_stock', 'low_stock', 'ordered', 'discontinued')),
-  image_url    TEXT,
-  location     VARCHAR(255),
-  ai_insights  TEXT,
-  created_at   TIMESTAMP       DEFAULT NOW(),
-  updated_at   TIMESTAMP       DEFAULT NOW()
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  sku VARCHAR(100) UNIQUE,
+  barcode VARCHAR(100) UNIQUE,
+  description TEXT,
+  category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+  supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
+  quantity NUMERIC(12,3) NOT NULL DEFAULT 0,
+  reorder_warning_quantity NUMERIC(12,3) NOT NULL DEFAULT 5,
+  unit_type VARCHAR(20) NOT NULL DEFAULT 'piece' CHECK (unit_type IN ('piece','kg')),
+  cost_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+  sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+  status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive','discontinued')),
+  image_url TEXT,
+  location VARCHAR(255),
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- 5. Item History (audit trail)
 CREATE TABLE IF NOT EXISTS item_history (
-  id         SERIAL        PRIMARY KEY,
-  item_id    INTEGER       NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-  user_id    VARCHAR(255)  REFERENCES users(id) ON DELETE SET NULL,
-  action     VARCHAR(50)   NOT NULL,   -- 'created' | 'updated' | 'quantity_changed' | 'status_changed'
+  id SERIAL PRIMARY KEY,
+  item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  action VARCHAR(60) NOT NULL,
   old_values JSONB,
   new_values JSONB,
-  notes      TEXT,
-  created_at TIMESTAMP     DEFAULT NOW()
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
 );
 
--- 6. Restock Orders
-CREATE TABLE IF NOT EXISTS restock_orders (
-  id                SERIAL        PRIMARY KEY,
-  item_id           INTEGER       NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-  supplier_id       INTEGER       REFERENCES suppliers(id) ON DELETE SET NULL,
-  quantity_ordered  INTEGER       NOT NULL,
-  quantity_received INTEGER       NOT NULL DEFAULT 0,
-  status            VARCHAR(20)   NOT NULL DEFAULT 'pending'
-                    CHECK (status IN ('pending', 'shipped', 'received', 'cancelled')),
-  ordered_by        VARCHAR(255)  REFERENCES users(id) ON DELETE SET NULL,
-  ordered_at        TIMESTAMP     DEFAULT NOW(),
-  expected_at       TIMESTAMP,
-  received_at       TIMESTAMP,
-  notes             TEXT
+CREATE TABLE IF NOT EXISTS purchases (
+  id SERIAL PRIMARY KEY,
+  supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
+  paid_status VARCHAR(20) NOT NULL DEFAULT 'unpaid' CHECK (paid_status IN ('paid','unpaid')),
+  total_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
+  purchased_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  paid_at TIMESTAMP,
+  notes TEXT,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP DEFAULT NOW()
 );
 
--- ============================================================
--- Indexes
--- ============================================================
+CREATE TABLE IF NOT EXISTS purchase_lines (
+  id SERIAL PRIMARY KEY,
+  purchase_id INTEGER NOT NULL REFERENCES purchases(id) ON DELETE CASCADE,
+  item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE RESTRICT,
+  quantity NUMERIC(12,3) NOT NULL CHECK (quantity > 0),
+  unit_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
+  line_total NUMERIC(12,2) NOT NULL DEFAULT 0
+);
 
--- Full-text search on item name and description
-CREATE INDEX IF NOT EXISTS idx_items_name        ON items USING gin(to_tsvector('english', name));
-CREATE INDEX IF NOT EXISTS idx_items_description ON items USING gin(to_tsvector('english', coalesce(description, '')));
+CREATE TABLE IF NOT EXISTS sales (
+  id SERIAL PRIMARY KEY,
+  subtotal NUMERIC(12,2) NOT NULL DEFAULT 0,
+  discount_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+  total NUMERIC(12,2) NOT NULL DEFAULT 0,
+  paid_status VARCHAR(20) NOT NULL DEFAULT 'paid' CHECK (paid_status IN ('paid','unpaid')),
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
 
--- Fast lookups on items
+CREATE TABLE IF NOT EXISTS sale_lines (
+  id SERIAL PRIMARY KEY,
+  sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+  item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE RESTRICT,
+  item_name VARCHAR(255) NOT NULL,
+  barcode VARCHAR(100),
+  quantity NUMERIC(12,3) NOT NULL CHECK (quantity > 0),
+  unit_type VARCHAR(20) NOT NULL,
+  unit_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+  unit_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
+  discount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  line_total NUMERIC(12,2) NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS expense_categories (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) UNIQUE NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS expenses (
+  id SERIAL PRIMARY KEY,
+  category_id INTEGER REFERENCES expense_categories(id) ON DELETE SET NULL,
+  amount NUMERIC(12,2) NOT NULL CHECK (amount >= 0),
+  expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  vendor VARCHAR(200),
+  notes TEXT,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_items_name ON items USING gin(to_tsvector('english', name));
+CREATE INDEX IF NOT EXISTS idx_items_barcode ON items(barcode);
 CREATE INDEX IF NOT EXISTS idx_items_category ON items(category_id);
 CREATE INDEX IF NOT EXISTS idx_items_supplier ON items(supplier_id);
-CREATE INDEX IF NOT EXISTS idx_items_status   ON items(status);
-CREATE INDEX IF NOT EXISTS idx_items_sku      ON items(sku);
-
--- Audit trail lookups
-CREATE INDEX IF NOT EXISTS idx_history_item ON item_history(item_id);
-CREATE INDEX IF NOT EXISTS idx_history_user ON item_history(user_id);
-
--- Restock order lookups
-CREATE INDEX IF NOT EXISTS idx_orders_item   ON restock_orders(item_id);
-CREATE INDEX IF NOT EXISTS idx_orders_status ON restock_orders(status);
+CREATE INDEX IF NOT EXISTS idx_sales_created_at ON sales(created_at);
+CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
+CREATE INDEX IF NOT EXISTS idx_purchases_paid_status ON purchases(paid_status);
