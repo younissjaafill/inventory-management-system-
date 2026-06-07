@@ -1,13 +1,13 @@
 const router = require('express').Router();
 const db = require('../db');
-const { authenticate, createToken, verifyPassword } = require('../middleware/auth');
+const { authenticate, createToken, verifyPassword, normalizePermissions } = require('../middleware/auth');
 
 router.post('/login', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'username and password are required' });
 
   const result = await db.query(
-    'SELECT id, username, password_hash, role, active FROM users WHERE username = $1',
+    'SELECT id, username, password_hash, role, permissions, active FROM users WHERE username = $1',
     [String(username).trim().toLowerCase()]
   );
   const user = result.rows[0];
@@ -15,7 +15,7 @@ router.post('/login', async (req, res) => {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
 
-  const safeUser = { id: user.id, username: user.username, role: user.role };
+  const safeUser = { id: user.id, username: user.username, role: user.role, permissions: normalizePermissions(user.role, user.permissions) };
   res.json({ token: createToken(safeUser), user: safeUser });
 });
 

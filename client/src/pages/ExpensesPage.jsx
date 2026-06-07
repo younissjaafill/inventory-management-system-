@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react'
 import { Plus, ReceiptText, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useApi } from '../hooks/useApi'
-import { money } from '../lib/format'
+import { dateOnly, localDateInputValue, money } from '../lib/format'
 
 export default function ExpensesPage() {
   const api = useApi()
   const [expenses, setExpenses] = useState([])
   const [categories, setCategories] = useState([])
-  const [form, setForm] = useState({ category_id: '', amount: '', expense_date: new Date().toISOString().slice(0, 10), vendor: '', notes: '' })
+  const [form, setForm] = useState({ category_id: '', amount: '', expense_date: localDateInputValue(), vendor: '', notes: '' })
 
   const fetch = async () => {
     const [e, c] = await Promise.all([api.get('/api/expenses'), api.get('/api/expenses/categories')])
@@ -23,7 +23,7 @@ export default function ExpensesPage() {
     try {
       await api.post('/api/expenses', { ...form, amount: Number(form.amount), category_id: form.category_id || null })
       toast.success('Expense added')
-      setForm({ category_id: '', amount: '', expense_date: new Date().toISOString().slice(0, 10), vendor: '', notes: '' })
+      setForm({ category_id: '', amount: '', expense_date: localDateInputValue(), vendor: '', notes: '' })
       fetch()
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to add expense')
@@ -88,7 +88,7 @@ export default function ExpensesPage() {
           <tbody>
             {expenses.map(expense => (
               <tr key={expense.id} className="border-t border-slate-100">
-                <td className="px-4 py-3">{new Date(expense.expense_date).toLocaleDateString()}</td>
+                <td className="px-4 py-3">{dateOnly(expense.expense_date)}</td>
                 <td className="px-4 py-3">{expense.category_name || '-'}</td>
                 <td className="px-4 py-3">{expense.vendor || '-'}</td>
                 <td className="px-4 py-3 text-slate-500">{expense.notes || '-'}</td>

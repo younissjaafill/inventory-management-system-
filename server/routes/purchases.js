@@ -1,12 +1,12 @@
 const router = require('express').Router();
 const db = require('../db');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate, requirePermission } = require('../middleware/auth');
 
 function money(value) {
   return Math.max(0, Math.round(Number(value || 0) * 100) / 100);
 }
 
-router.get('/', authenticate, async (req, res) => {
+router.get('/', authenticate, requirePermission('purchases'), async (req, res) => {
   const result = await db.query(
     `SELECT p.*, s.name AS supplier_name, u.username AS created_by_name,
             COALESCE(json_agg(json_build_object(
@@ -25,7 +25,7 @@ router.get('/', authenticate, async (req, res) => {
   res.json(result.rows);
 });
 
-router.post('/', authenticate, requireRole('admin'), async (req, res) => {
+router.post('/', authenticate, requirePermission('purchases'), async (req, res) => {
   const { supplier_id, paid_status = 'unpaid', purchased_at, notes, lines = [] } = req.body;
   if (!Array.isArray(lines) || lines.length === 0) return res.status(400).json({ error: 'Purchase lines are required' });
 
@@ -45,10 +45,9 @@ router.post('/', authenticate, requireRole('admin'), async (req, res) => {
     const total = money(prepared.reduce((sum, line) => sum + line.lineTotal, 0));
     const purchase = await client.query(
       `INSERT INTO purchases (supplier_id, paid_status, total_cost, purchased_at, paid_at, notes, created_by)
-       VALUES ($1,$2,$3,COALESCE($4::timestamp,NOW()),$5,$6,$7)
+       VALUES ($1,$2::varchar,$3,COALESCE($4::timestamp,NOW()),CASE WHEN $2::varchar='paid' THEN NOW() ELSE NULL END,$5,$6)
        RETURNING *`,
-      [supplier_id || null, paid_status, total, purchased_at || null,
-        paid_status === 'paid' ? new Date() : null, notes || null, req.user.id]
+      [supplier_id || null, paid_status, total, purchased_at || null, notes || null, req.user.id]
     );
 
     for (const line of prepared) {
@@ -81,11 +80,11 @@ router.post('/', authenticate, requireRole('admin'), async (req, res) => {
   }
 });
 
-router.patch('/:id/payment', authenticate, requireRole('admin'), async (req, res) => {
+router.patch('/:id/payment', authenticate, requirePermission('purchases'), async (req, res) => {
   const { paid_status } = req.body;
   if (!['paid', 'unpaid'].includes(paid_status)) return res.status(400).json({ error: 'paid_status must be paid or unpaid' });
   const result = await db.query(
-    `UPDATE purchases SET paid_status=$1, paid_at=CASE WHEN $1='paid' THEN NOW() ELSE NULL END
+    `UPDATE purchases SET paid_status=$1::varchar, paid_at=CASE WHEN $1::varchar='paid' THEN NOW() ELSE NULL END
      WHERE id=$2 RETURNING *`,
     [paid_status, req.params.id]
   );

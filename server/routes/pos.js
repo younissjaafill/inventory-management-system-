@@ -1,26 +1,56 @@
 const router = require('express').Router();
 const db = require('../db');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate, requirePermission } = require('../middleware/auth');
 
 function money(value) {
   return Math.max(0, Math.round(Number(value || 0) * 100) / 100);
 }
 
-router.get('/sales', authenticate, async (req, res) => {
+function percent(value) {
+  return Math.min(100, Math.max(0, Number(value || 0)));
+}
+
+router.get('/sales', authenticate, requirePermission('pos'), async (req, res) => {
+  const { date } = req.query;
+  const params = [];
+  const where = [];
+  if (date) {
+    params.push(date);
+    where.push(`(
+      ((s.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Beirut')::date = $${params.length}::date
+      OR s.created_at::date = $${params.length}::date
+    )`);
+  }
+
   const result = await db.query(
-    `SELECT s.*, u.username AS created_by_name, COUNT(sl.id)::int AS line_count
+    `SELECT
+       s.*,
+       u.username AS created_by_name,
+       COUNT(sl.id)::int AS line_count,
+       COALESCE(json_agg(json_build_object(
+         'id', sl.id,
+         'item_id', sl.item_id,
+         'item_name', sl.item_name,
+         'quantity', sl.quantity,
+         'unit_type', sl.unit_type,
+         'unit_price', sl.unit_price,
+         'discount', sl.discount,
+         'line_total', sl.line_total
+       ) ORDER BY sl.id) FILTER (WHERE sl.id IS NOT NULL), '[]') AS lines
      FROM sales s
      LEFT JOIN users u ON u.id = s.created_by
      LEFT JOIN sale_lines sl ON sl.sale_id = s.id
+     ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
      GROUP BY s.id, u.username
      ORDER BY s.created_at DESC
-     LIMIT 100`
+     LIMIT 100`,
+    params
   );
   res.json(result.rows);
 });
 
-router.post('/sales', authenticate, requireRole('admin'), async (req, res) => {
-  const { lines = [], cart_discount = 0, paid_status = 'paid' } = req.body;
+router.post('/sales', authenticate, requirePermission('pos'), async (req, res) => {
+  const { lines = [], cart_discount = 0, cart_discount_percent, paid_status = 'paid' } = req.body;
   if (!Array.isArray(lines) || lines.length === 0) return res.status(400).json({ error: 'Sale lines are required' });
 
   const client = await db.connect();
@@ -37,14 +67,19 @@ router.post('/sales', authenticate, requireRole('admin'), async (req, res) => {
       if (!quantity || quantity <= 0) throw new Error(`Invalid quantity for ${item.name}`);
       if (Number(item.quantity) < quantity) throw new Error(`Insufficient stock for ${item.name}`);
 
-      const discount = money(line.discount || 0);
-      const unitPrice = money(item.sale_price);
-      const lineTotal = money(unitPrice * quantity - discount);
-      prepared.push({ item, quantity, discount, unitPrice, lineTotal });
+      const unitPrice = money(line.unit_price === undefined ? item.sale_price : line.unit_price);
+      if (unitPrice <= 0) throw new Error(`Invalid unit price for ${item.name}`);
+
+      const discountPercent = percent(line.discount_percent ?? line.discount ?? 0);
+      const grossLineTotal = money(unitPrice * quantity);
+      const discount = money(grossLineTotal * (discountPercent / 100));
+      const lineTotal = money(grossLineTotal - discount);
+      prepared.push({ item, quantity, discount, discountPercent, unitPrice, lineTotal });
     }
 
     const subtotal = money(prepared.reduce((sum, line) => sum + line.lineTotal, 0));
-    const discountTotal = money(cart_discount);
+    const cartDiscountPercent = percent(cart_discount_percent ?? cart_discount ?? 0);
+    const discountTotal = money(subtotal * (cartDiscountPercent / 100));
     const total = money(subtotal - discountTotal);
 
     const sale = await client.query(

@@ -5,7 +5,7 @@ import toast from 'react-hot-toast'
 import AddEditItemModal from '../components/AddEditItemModal'
 import StatusBadge from '../components/StatusBadge'
 import { useApi } from '../hooks/useApi'
-import { money, qty, stockClasses } from '../lib/format'
+import { dateTime, money, qty, stockClasses } from '../lib/format'
 
 export default function ItemDetailPage() {
   const { id } = useParams()
@@ -134,7 +134,7 @@ export default function ItemDetailPage() {
                 <td className="px-4 py-3 font-medium">{row.action}</td>
                 <td className="px-4 py-3 text-slate-600">{row.notes || '-'}</td>
                 <td className="px-4 py-3 text-slate-500">{row.user_name || '-'}</td>
-                <td className="px-4 py-3 text-slate-500">{new Date(row.created_at).toLocaleString()}</td>
+                <td className="px-4 py-3 text-slate-500">{dateTime(row.created_at)}</td>
               </tr>
             ))}
             {!item.history?.length && <tr><td className="px-4 py-8 text-center text-slate-400">No history yet</td></tr>}

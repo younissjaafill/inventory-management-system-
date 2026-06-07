@@ -4,7 +4,8 @@ CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   username VARCHAR(80) UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
-  role VARCHAR(30) NOT NULL DEFAULT 'admin' CHECK (role IN ('admin')),
+  role VARCHAR(30) NOT NULL DEFAULT 'admin' CHECK (role IN ('admin','staff')),
+  permissions JSONB NOT NULL DEFAULT '{"pos": true, "stock": false, "purchases": false, "expenses": false, "dashboard": false, "admin": false}'::jsonb,
   active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMP DEFAULT NOW()
 );
@@ -112,7 +113,7 @@ CREATE TABLE IF NOT EXISTS expenses (
   id SERIAL PRIMARY KEY,
   category_id INTEGER REFERENCES expense_categories(id) ON DELETE SET NULL,
   amount NUMERIC(12,2) NOT NULL CHECK (amount >= 0),
-  expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  expense_date DATE NOT NULL DEFAULT ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Beirut')::date),
   vendor VARCHAR(200),
   notes TEXT,
   created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,

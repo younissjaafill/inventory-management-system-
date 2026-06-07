@@ -27,5 +27,9 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Server error' });
 });
 
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`Inventory Management Server running on port ${PORT}`));
+if (require.main === module) {
+  const PORT = process.env.PORT || 4000;
+  app.listen(PORT, () => console.log(`Inventory Management Server running on port ${PORT}`));
+}
+
+module.exports = app;

@@ -18,11 +18,18 @@ function ProtectedRoute({ children }) {
   return children
 }
 
+function PermissionRoute({ permission, children }) {
+  const { can, loading } = useAuth()
+  if (loading) return <div className="min-h-screen grid place-items-center text-sm text-slate-500">Loading Pets&Claws...</div>
+  if (!can(permission)) return <Navigate to="/pos" replace />
+  return children
+}
+
 export default function App() {
   const { isAuthenticated } = useAuth()
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
+    <div className="min-h-screen bg-slate-50 text-slate-900">
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
       <Routes>
         <Route path="/sign-in" element={isAuthenticated ? <Navigate to="/" replace /> : <SignInPage />} />
@@ -31,17 +38,19 @@ export default function App() {
           element={
             <ProtectedRoute>
               <Navbar />
-              <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-5">
+              <main className="lg:pl-64">
+                <div className="max-w-7xl w-full mx-auto px-4 py-5 lg:px-6">
                 <Routes>
-                  <Route path="/" element={<DashboardPage />} />
-                  <Route path="/inventory" element={<InventoryPage />} />
-                  <Route path="/inventory/:id" element={<ItemDetailPage />} />
-                  <Route path="/pos" element={<POSPage />} />
-                  <Route path="/purchases" element={<PurchasesPage />} />
-                  <Route path="/expenses" element={<ExpensesPage />} />
-                  <Route path="/admin" element={<AdminPage />} />
+                  <Route path="/" element={<PermissionRoute permission="dashboard"><DashboardPage /></PermissionRoute>} />
+                  <Route path="/inventory" element={<PermissionRoute permission="stock"><InventoryPage /></PermissionRoute>} />
+                  <Route path="/inventory/:id" element={<PermissionRoute permission="stock"><ItemDetailPage /></PermissionRoute>} />
+                  <Route path="/pos" element={<PermissionRoute permission="pos"><POSPage /></PermissionRoute>} />
+                  <Route path="/purchases" element={<PermissionRoute permission="purchases"><PurchasesPage /></PermissionRoute>} />
+                  <Route path="/expenses" element={<PermissionRoute permission="expenses"><ExpensesPage /></PermissionRoute>} />
+                  <Route path="/admin" element={<PermissionRoute permission="admin"><AdminPage /></PermissionRoute>} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
+                </div>
               </main>
             </ProtectedRoute>
           }

@@ -1,6 +1,47 @@
 export const money = (value) =>
   `$${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
+export const LEBANON_TIME_ZONE = 'Asia/Beirut'
+
+export const localDateInputValue = (date = new Date()) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: LEBANON_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date)
+  const get = (type) => parts.find(part => part.type === type)?.value
+  return `${get('year')}-${get('month')}-${get('day')}`
+}
+
+const dbTimestamp = (value) => {
+  if (!value || typeof value !== 'string') return value
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(value)) return value
+  return `${value}Z`
+}
+
+export const dateTime = (value) =>
+  value
+    ? new Date(dbTimestamp(value)).toLocaleString(undefined, {
+        timeZone: LEBANON_TIME_ZONE,
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '-'
+
+export const dateOnly = (value) =>
+  value
+    ? new Date(value).toLocaleDateString(undefined, {
+        timeZone: LEBANON_TIME_ZONE,
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      })
+    : '-'
+
 export const qty = (value, unit = 'piece') => {
   const number = Number(value || 0)
   return `${number.toLocaleString(undefined, { maximumFractionDigits: unit === 'kg' ? 3 : 0 })} ${unit === 'kg' ? 'kg' : 'pcs'}`

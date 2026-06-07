@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, Plus, ShoppingBag } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useApi } from '../hooks/useApi'
-import { money, qty } from '../lib/format'
+import { dateOnly, money, qty } from '../lib/format'
 
 export default function PurchasesPage() {
   const api = useApi()
@@ -118,7 +118,7 @@ export default function PurchasesPage() {
                     {p.paid_status === 'unpaid' && <AlertTriangle size={12} />} {p.paid_status}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-slate-500">{new Date(p.purchased_at).toLocaleDateString()}</td>
+                <td className="px-4 py-3 text-slate-500">{dateOnly(p.purchased_at)}</td>
                 <td className="px-4 py-3">
                   <button onClick={() => markPaid(p, p.paid_status === 'paid' ? 'unpaid' : 'paid')} className="rounded-md border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50">
                     Mark {p.paid_status === 'paid' ? 'unpaid' : 'paid'}

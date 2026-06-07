@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const db = require('../db');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate, requirePermission } = require('../middleware/auth');
 
 function stockState(item) {
   if (item.status !== 'active') return 'neutral';
@@ -34,7 +34,7 @@ const itemSelect = `
   LEFT JOIN suppliers s ON s.id = i.supplier_id
 `;
 
-router.get('/', authenticate, async (req, res) => {
+router.get('/', authenticate, requirePermission('stock', 'pos', 'purchases'), async (req, res) => {
   const { q, category_id, supplier_id, stock, page = 1, limit = 50 } = req.query;
   const conditions = [];
   const params = [];
@@ -76,13 +76,13 @@ router.get('/', authenticate, async (req, res) => {
   });
 });
 
-router.get('/barcode/:barcode', authenticate, async (req, res) => {
+router.get('/barcode/:barcode', authenticate, requirePermission('pos', 'stock', 'purchases'), async (req, res) => {
   const result = await db.query(`${itemSelect} WHERE i.barcode = $1`, [req.params.barcode]);
   if (!result.rows[0]) return res.status(404).json({ error: 'Item not found for this barcode' });
   res.json({ ...result.rows[0], stock_state: stockState(result.rows[0]) });
 });
 
-router.get('/:id', authenticate, async (req, res) => {
+router.get('/:id', authenticate, requirePermission('stock', 'purchases'), async (req, res) => {
   const result = await db.query(`${itemSelect} WHERE i.id = $1`, [req.params.id]);
   if (!result.rows[0]) return res.status(404).json({ error: 'Item not found' });
   const history = await db.query(
@@ -97,7 +97,7 @@ router.get('/:id', authenticate, async (req, res) => {
   res.json({ ...result.rows[0], stock_state: stockState(result.rows[0]), history: history.rows });
 });
 
-router.post('/', authenticate, requireRole('admin'), async (req, res) => {
+router.post('/', authenticate, requirePermission('stock'), async (req, res) => {
   const {
     name, sku, barcode, description, category_id, supplier_id, quantity = 0,
     reorder_warning_quantity = 5, unit_type = 'piece', cost_price = 0, sale_price = 0,
@@ -118,7 +118,7 @@ router.post('/', authenticate, requireRole('admin'), async (req, res) => {
   res.status(201).json({ ...result.rows[0], stock_state: stockState(result.rows[0]) });
 });
 
-router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
+router.put('/:id', authenticate, requirePermission('stock'), async (req, res) => {
   const existing = await db.query('SELECT * FROM items WHERE id = $1', [req.params.id]);
   if (!existing.rows[0]) return res.status(404).json({ error: 'Item not found' });
   const old = existing.rows[0];
@@ -140,7 +140,7 @@ router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
   res.json({ ...result.rows[0], stock_state: stockState(result.rows[0]) });
 });
 
-router.patch('/:id/quantity', authenticate, requireRole('admin'), async (req, res) => {
+router.patch('/:id/quantity', authenticate, requirePermission('stock'), async (req, res) => {
   const { adjustment, notes } = req.body;
   if (adjustment === undefined) return res.status(400).json({ error: 'adjustment is required' });
   const existing = await db.query('SELECT * FROM items WHERE id = $1', [req.params.id]);
@@ -155,7 +155,7 @@ router.patch('/:id/quantity', authenticate, requireRole('admin'), async (req, re
   res.json({ ...result.rows[0], stock_state: stockState(result.rows[0]) });
 });
 
-router.delete('/:id', authenticate, requireRole('admin'), async (req, res) => {
+router.delete('/:id', authenticate, requirePermission('stock'), async (req, res) => {
   const result = await db.query('DELETE FROM items WHERE id = $1 RETURNING id', [req.params.id]);
   if (!result.rows[0]) return res.status(404).json({ error: 'Item not found' });
   res.json({ success: true });

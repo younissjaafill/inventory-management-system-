@@ -3,6 +3,28 @@ const db = require('../db');
 
 const TOKEN_SECRET = process.env.AUTH_SECRET || 'pets-and-claws-dev-secret';
 const TOKEN_TTL_MS = 1000 * 60 * 60 * 12;
+const DEFAULT_STAFF_PERMISSIONS = {
+  pos: true,
+  stock: false,
+  purchases: false,
+  expenses: false,
+  dashboard: false,
+  admin: false,
+};
+
+function normalizePermissions(role, permissions = {}) {
+  if (role === 'admin') {
+    return {
+      pos: true,
+      stock: true,
+      purchases: true,
+      expenses: true,
+      dashboard: true,
+      admin: true,
+    };
+  }
+  return { ...DEFAULT_STAFF_PERMISSIONS, ...(permissions || {}) };
+}
 
 function signPayload(payload) {
   return crypto
@@ -16,6 +38,7 @@ function createToken(user) {
     id: user.id,
     username: user.username,
     role: user.role,
+    permissions: normalizePermissions(user.role, user.permissions),
     exp: Date.now() + TOKEN_TTL_MS,
   })).toString('base64url');
   return `${body}.${signPayload(body)}`;
@@ -48,12 +71,15 @@ async function authenticate(req, res, next) {
   if (!payload) return res.status(401).json({ error: 'Authentication required' });
 
   const result = await db.query(
-    'SELECT id, username, role, active FROM users WHERE id = $1 AND active = true',
+    'SELECT id, username, role, permissions, active FROM users WHERE id = $1 AND active = true',
     [payload.id]
   );
   if (!result.rows[0]) return res.status(401).json({ error: 'Authentication required' });
 
-  req.user = result.rows[0];
+  req.user = {
+    ...result.rows[0],
+    permissions: normalizePermissions(result.rows[0].role, result.rows[0].permissions),
+  };
   req.auth = { userId: String(result.rows[0].id) };
   next();
 }
@@ -65,6 +91,13 @@ const requireRole = (...roles) => (req, res, next) => {
   next();
 };
 
+const requirePermission = (...permissions) => (req, res, next) => {
+  if (!req.user) return res.status(403).json({ error: 'Insufficient permissions' });
+  if (req.user.role === 'admin') return next();
+  if (permissions.some(permission => req.user.permissions?.[permission])) return next();
+  return res.status(403).json({ error: 'Insufficient permissions' });
+};
+
 const syncUser = (req, res, next) => next();
 
-module.exports = { authenticate, requireRole, syncUser, createToken, hashPassword, verifyPassword };
+module.exports = { authenticate, requireRole, requirePermission, syncUser, createToken, hashPassword, verifyPassword, normalizePermissions, DEFAULT_STAFF_PERMISSIONS };

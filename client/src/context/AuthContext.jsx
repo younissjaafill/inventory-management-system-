@@ -3,6 +3,29 @@ import api, { setAuthToken } from '../lib/api'
 
 const AuthContext = createContext(null)
 
+const adminPermissions = {
+  pos: true,
+  stock: true,
+  purchases: true,
+  expenses: true,
+  dashboard: true,
+  admin: true,
+}
+
+const staffDefaults = {
+  pos: true,
+  stock: false,
+  purchases: false,
+  expenses: false,
+  dashboard: false,
+  admin: false,
+}
+
+export function permissionsFor(user) {
+  if (user?.role === 'admin') return adminPermissions
+  return { ...staffDefaults, ...(user?.permissions || {}) }
+}
+
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem('pc_token'))
   const [user, setUser] = useState(() => {
@@ -42,7 +65,9 @@ export function AuthProvider({ children }) {
     setUser(null)
   }
 
-  const value = useMemo(() => ({ token, user, loading, login, logout, isAuthenticated: Boolean(token && user) }), [token, user, loading])
+  const permissions = useMemo(() => permissionsFor(user), [user])
+  const can = (permission) => Boolean(permissions[permission])
+  const value = useMemo(() => ({ token, user, permissions, can, loading, login, logout, isAuthenticated: Boolean(token && user) }), [token, user, permissions, loading])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
