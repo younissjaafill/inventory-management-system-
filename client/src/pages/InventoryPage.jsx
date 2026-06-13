@@ -5,11 +5,22 @@ import toast from 'react-hot-toast'
 import AddEditItemModal from '../components/AddEditItemModal'
 import StatusBadge from '../components/StatusBadge'
 import { useApi } from '../hooks/useApi'
-import { money, qty, stockClasses } from '../lib/format'
+import { dateOnly, expiryClasses, money, qty, stockClasses } from '../lib/format'
 
 function StockPill({ state }) {
   const labels = { red: 'Red', yellow: 'Yellow', green: 'Green', neutral: 'Neutral' }
   return <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${stockClasses[state]}`}>{labels[state] || state}</span>
+}
+
+function ExpiryPill({ item }) {
+  const labels = { none: 'No expiry', ok: 'OK', warning: 'Expiring soon', expired: 'Expired' }
+  const state = item.expiry_state || 'none'
+  return (
+    <div className="space-y-1">
+      <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${expiryClasses[state]}`}>{labels[state] || state}</span>
+      <p className="text-xs text-slate-500">{item.expiry_date ? dateOnly(item.expiry_date) : '-'}</p>
+    </div>
+  )
 }
 
 export default function InventoryPage() {
@@ -85,13 +96,14 @@ export default function InventoryPage() {
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-sm">
+          <table className="w-full min-w-[1080px] text-sm">
             <thead className="bg-slate-50 text-xs text-slate-500">
               <tr>
                 <th className="text-left px-4 py-3">Item</th>
                 <th className="text-left px-4 py-3">Barcode</th>
                 <th className="text-left px-4 py-3">Stock</th>
                 <th className="text-left px-4 py-3">Warning</th>
+                <th className="text-left px-4 py-3">Expiry</th>
                 <th className="text-left px-4 py-3">Prices</th>
                 <th className="text-left px-4 py-3">Supplier</th>
                 <th className="text-left px-4 py-3">Status</th>
@@ -113,6 +125,7 @@ export default function InventoryPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-600">Warn under {qty(item.reorder_warning_quantity, item.unit_type)}</td>
+                  <td className="px-4 py-3"><ExpiryPill item={item} /></td>
                   <td className="px-4 py-3 text-xs">
                     <p>Sale {money(item.sale_price)}</p>
                     <p className="text-slate-500">Cost {money(item.cost_price)}</p>
@@ -134,10 +147,10 @@ export default function InventoryPage() {
                 </tr>
               ))}
               {!loading && items.length === 0 && (
-                <tr><td colSpan="8" className="text-center py-12 text-slate-400">No stock items found</td></tr>
+                <tr><td colSpan="9" className="text-center py-12 text-slate-400">No stock items found</td></tr>
               )}
               {loading && (
-                <tr><td colSpan="8" className="text-center py-12 text-slate-400">Loading stock...</td></tr>
+                <tr><td colSpan="9" className="text-center py-12 text-slate-400">Loading stock...</td></tr>
               )}
             </tbody>
           </table>

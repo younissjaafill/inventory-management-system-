@@ -5,7 +5,19 @@ import toast from 'react-hot-toast'
 import AddEditItemModal from '../components/AddEditItemModal'
 import StatusBadge from '../components/StatusBadge'
 import { useApi } from '../hooks/useApi'
-import { dateTime, money, qty, stockClasses } from '../lib/format'
+import { dateOnly, dateTime, expiryClasses, money, qty, stockClasses } from '../lib/format'
+
+function ExpiryStatus({ item }) {
+  const labels = { none: 'No expiry', ok: 'OK', warning: 'Expiring soon', expired: 'Expired' }
+  const state = item.expiry_state || 'none'
+  return (
+    <div className={`rounded-lg border p-3 ${expiryClasses[state]}`}>
+      <p className="text-xs font-medium">Expiry</p>
+      <p className="text-lg font-bold">{labels[state] || state}</p>
+      <p className="text-xs mt-1">{item.expiry_date ? dateOnly(item.expiry_date) : '-'}</p>
+    </div>
+  )
+}
 
 export default function ItemDetailPage() {
   const { id } = useParams()
@@ -77,7 +89,7 @@ export default function ItemDetailPage() {
             </div>
           )}
 
-          <div className="grid sm:grid-cols-4 gap-3">
+          <div className="grid sm:grid-cols-5 gap-3">
             <div className={`rounded-lg border p-3 ${stockClasses[item.stock_state]}`}>
               <p className="text-xs font-medium">Stock state</p>
               <p className="text-lg font-bold capitalize">{item.stock_state}</p>
@@ -94,6 +106,7 @@ export default function ItemDetailPage() {
               <p className="text-xs text-slate-500">Barcode</p>
               <p className="text-lg font-bold font-mono">{item.barcode || '-'}</p>
             </div>
+            <ExpiryStatus item={item} />
           </div>
 
           <div className="grid sm:grid-cols-2 gap-3 text-sm">
@@ -102,6 +115,7 @@ export default function ItemDetailPage() {
             <p><span className="text-slate-500">Cost:</span> {money(item.cost_price)}</p>
             <p><span className="text-slate-500">Sale:</span> {money(item.sale_price)}</p>
             <p><span className="text-slate-500">Location:</span> {item.location || '-'}</p>
+            <p><span className="text-slate-500">Expiry warning:</span> {item.expiry_warning_months || 3} months</p>
           </div>
           {item.notes && <p className="text-sm text-slate-600 border-t border-slate-100 pt-3">{item.notes}</p>}
 

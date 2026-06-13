@@ -59,6 +59,37 @@ router.post('/sales', authenticate, requirePermission('pos'), async (req, res) =
     const prepared = [];
 
     for (const line of lines) {
+      if (line.custom || !line.item_id) {
+        const quantity = Number(line.quantity);
+        if (!quantity || quantity <= 0) throw new Error('Invalid quantity for custom item');
+
+        const itemName = String(line.item_name || line.name || 'Other').trim() || 'Other';
+        const unitType = line.unit_type === 'kg' ? 'kg' : 'piece';
+        const unitPrice = money(line.unit_price);
+        if (unitPrice <= 0) throw new Error(`Invalid unit price for ${itemName}`);
+
+        const discountPercent = percent(line.discount_percent ?? line.discount ?? 0);
+        const grossLineTotal = money(unitPrice * quantity);
+        const discount = money(grossLineTotal * (discountPercent / 100));
+        const lineTotal = money(grossLineTotal - discount);
+        prepared.push({
+          custom: true,
+          item: {
+            id: null,
+            name: itemName,
+            barcode: line.barcode || null,
+            unit_type: unitType,
+            cost_price: 0,
+          },
+          quantity,
+          discount,
+          discountPercent,
+          unitPrice,
+          lineTotal,
+        });
+        continue;
+      }
+
       const itemResult = await client.query('SELECT * FROM items WHERE id = $1 FOR UPDATE', [line.item_id]);
       const item = itemResult.rows[0];
       if (!item || item.status !== 'active') throw new Error(`Item is unavailable: ${line.item_id}`);
@@ -96,6 +127,8 @@ router.post('/sales', authenticate, requirePermission('pos'), async (req, res) =
         [sale.rows[0].id, line.item.id, line.item.name, line.item.barcode, line.quantity,
           line.item.unit_type, line.unitPrice, line.item.cost_price, line.discount, line.lineTotal]
       );
+      if (line.custom) continue;
+
       await client.query('UPDATE items SET quantity = quantity - $1, updated_at = NOW() WHERE id = $2', [line.quantity, line.item.id]);
       await client.query(
         `INSERT INTO item_history (item_id, user_id, action, old_values, new_values, notes)

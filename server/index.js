@@ -19,6 +19,7 @@ app.use('/api/pos',        require('./routes/pos'));
 app.use('/api/purchases',  require('./routes/purchases'));
 app.use('/api/expenses',   require('./routes/expenses'));
 app.use('/api/dashboard',  require('./routes/dashboard'));
+app.use('/api/reports',    require('./routes/reports'));
 app.use('/api/users',      require('./routes/users'));
 
 // Global error handler

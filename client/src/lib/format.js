@@ -42,6 +42,8 @@ export const dateOnly = (value) =>
       })
     : '-'
 
+export const dateInputValue = (value) => value ? String(value).slice(0, 10) : ''
+
 export const qty = (value, unit = 'piece') => {
   const number = Number(value || 0)
   return `${number.toLocaleString(undefined, { maximumFractionDigits: unit === 'kg' ? 3 : 0 })} ${unit === 'kg' ? 'kg' : 'pcs'}`
@@ -52,4 +54,11 @@ export const stockClasses = {
   yellow: 'bg-yellow-50 text-yellow-700 border-yellow-200',
   green: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   neutral: 'bg-slate-100 text-slate-500 border-slate-200',
+}
+
+export const expiryClasses = {
+  none: 'bg-slate-100 text-slate-500 border-slate-200',
+  ok: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  warning: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+  expired: 'bg-red-50 text-red-700 border-red-200',
 }

@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS items (
   supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
   quantity NUMERIC(12,3) NOT NULL DEFAULT 0,
   reorder_warning_quantity NUMERIC(12,3) NOT NULL DEFAULT 5,
+  expiry_date DATE,
+  expiry_warning_months INTEGER NOT NULL DEFAULT 3,
   unit_type VARCHAR(20) NOT NULL DEFAULT 'piece' CHECK (unit_type IN ('piece','kg')),
   cost_price NUMERIC(12,2) NOT NULL DEFAULT 0,
   sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -92,7 +94,7 @@ CREATE TABLE IF NOT EXISTS sales (
 CREATE TABLE IF NOT EXISTS sale_lines (
   id SERIAL PRIMARY KEY,
   sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
-  item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE RESTRICT,
+  item_id INTEGER REFERENCES items(id) ON DELETE RESTRICT,
   item_name VARCHAR(255) NOT NULL,
   barcode VARCHAR(100),
   quantity NUMERIC(12,3) NOT NULL CHECK (quantity > 0),
@@ -124,6 +126,7 @@ CREATE INDEX IF NOT EXISTS idx_items_name ON items USING gin(to_tsvector('englis
 CREATE INDEX IF NOT EXISTS idx_items_barcode ON items(barcode);
 CREATE INDEX IF NOT EXISTS idx_items_category ON items(category_id);
 CREATE INDEX IF NOT EXISTS idx_items_supplier ON items(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_items_expiry_date ON items(expiry_date);
 CREATE INDEX IF NOT EXISTS idx_sales_created_at ON sales(created_at);
 CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
 CREATE INDEX IF NOT EXISTS idx_purchases_paid_status ON purchases(paid_status);

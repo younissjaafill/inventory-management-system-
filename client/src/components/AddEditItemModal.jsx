@@ -1,16 +1,24 @@
 import { useEffect, useState } from 'react'
 import { Loader2, X } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
+import { dateInputValue } from '../lib/format'
 
 const empty = {
   name: '', sku: '', barcode: '', description: '', category_id: '', supplier_id: '',
-  quantity: 0, reorder_warning_quantity: 5, unit_type: 'piece',
+  quantity: 0, reorder_warning_quantity: 5, expiry_date: '', expiry_warning_months: 3, unit_type: 'piece',
   cost_price: 0, sale_price: 0, status: 'active', location: '', notes: '', image_url: '',
 }
 
 export default function AddEditItemModal({ item, onClose, onSaved }) {
   const api = useApi()
-  const [form, setForm] = useState(item ? { ...empty, ...item, category_id: item.category_id || '', supplier_id: item.supplier_id || '' } : empty)
+  const [form, setForm] = useState(item ? {
+    ...empty,
+    ...item,
+    category_id: item.category_id || '',
+    supplier_id: item.supplier_id || '',
+    expiry_date: dateInputValue(item.expiry_date),
+    expiry_warning_months: item.expiry_warning_months || 3,
+  } : empty)
   const [categories, setCategories] = useState([])
   const [suppliers, setSuppliers] = useState([])
   const [saving, setSaving] = useState(false)
@@ -36,6 +44,8 @@ export default function AddEditItemModal({ item, onClose, onSaved }) {
       supplier_id: form.supplier_id || null,
       quantity: Number(form.quantity),
       reorder_warning_quantity: Number(form.reorder_warning_quantity),
+      expiry_date: form.expiry_date || null,
+      expiry_warning_months: Number(form.expiry_warning_months || 3),
       cost_price: Number(form.cost_price || 0),
       sale_price: Number(form.sale_price || 0),
     }
@@ -88,6 +98,16 @@ export default function AddEditItemModal({ item, onClose, onSaved }) {
             <div>
               <label className={label}>Warn under</label>
               <input className={input} type="number" step="0.001" min="0" value={form.reorder_warning_quantity} onChange={e => set('reorder_warning_quantity', e.target.value)} />
+            </div>
+          </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            <div>
+              <label className={label}>Expiry date</label>
+              <input className={input} type="date" value={form.expiry_date || ''} onChange={e => set('expiry_date', e.target.value)} />
+            </div>
+            <div>
+              <label className={label}>Expiry warning months</label>
+              <input className={input} type="number" step="1" min="0" value={form.expiry_warning_months} onChange={e => set('expiry_warning_months', e.target.value)} />
             </div>
           </div>
           <div className="grid md:grid-cols-4 gap-3">

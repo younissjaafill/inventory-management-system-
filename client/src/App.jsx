@@ -9,6 +9,7 @@ import ItemDetailPage from './pages/ItemDetailPage'
 import POSPage from './pages/POSPage'
 import PurchasesPage from './pages/PurchasesPage'
 import ExpensesPage from './pages/ExpensesPage'
+import ReportsPage from './pages/ReportsPage'
 import AdminPage from './pages/AdminPage'
 
 function ProtectedRoute({ children }) {
@@ -47,6 +48,7 @@ export default function App() {
                   <Route path="/pos" element={<PermissionRoute permission="pos"><POSPage /></PermissionRoute>} />
                   <Route path="/purchases" element={<PermissionRoute permission="purchases"><PurchasesPage /></PermissionRoute>} />
                   <Route path="/expenses" element={<PermissionRoute permission="expenses"><ExpensesPage /></PermissionRoute>} />
+                  <Route path="/reports" element={<PermissionRoute permission="dashboard"><ReportsPage /></PermissionRoute>} />
                   <Route path="/admin" element={<PermissionRoute permission="admin"><AdminPage /></PermissionRoute>} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Barcode, CalendarDays, Minus, Plus, ScanLine, Trash2 } from 'lucide-react'
+import { Barcode, CalendarDays, Minus, PackagePlus, Plus, ScanLine, Trash2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useApi } from '../hooks/useApi'
 import { dateOnly, localDateInputValue, money, qty } from '../lib/format'
@@ -13,6 +13,8 @@ export default function POSPage() {
   const [checkingOut, setCheckingOut] = useState(false)
   const [historyDate, setHistoryDate] = useState(localDateInputValue())
   const [salesHistory, setSalesHistory] = useState([])
+  const [showOther, setShowOther] = useState(false)
+  const [otherItem, setOtherItem] = useState({ barcode: '', name: 'Other', quantity: 1, unit_price: '', unit_type: 'piece' })
 
   const fetchSalesHistory = async () => {
     const res = await api.get(`/api/pos/sales?date=${historyDate}`)
@@ -31,8 +33,20 @@ export default function POSPage() {
       const item = res.data
       setCart(prev => {
         const existing = prev.find(line => line.item_id === item.id)
-        if (existing) return prev.map(line => line.item_id === item.id ? { ...line, quantity: Number(line.quantity) + 1 } : line)
-        return [...prev, { item_id: item.id, name: item.name, barcode: item.barcode, unit_type: item.unit_type, available: Number(item.quantity), unit_price: Number(item.sale_price), quantity: item.unit_type === 'kg' ? 0.25 : 1, discount: 0 }]
+        const step = item.unit_type === 'kg' ? 0.25 : 1
+        if (existing) {
+          const nextQuantity = Number(existing.quantity) + step
+          if (nextQuantity > Number(existing.available)) {
+            toast.error(`Insufficient stock for ${existing.name}`)
+            return prev
+          }
+          return prev.map(line => line.item_id === item.id ? { ...line, quantity: nextQuantity } : line)
+        }
+        if (step > Number(item.quantity)) {
+          toast.error(`Insufficient stock for ${item.name}`)
+          return prev
+        }
+        return [...prev, { cart_id: `item-${item.id}`, item_id: item.id, name: item.name, barcode: item.barcode, unit_type: item.unit_type, available: Number(item.quantity), unit_price: Number(item.sale_price), quantity: step, discount: 0 }]
       })
       setBarcode('')
       inputRef.current?.focus()
@@ -41,8 +55,41 @@ export default function POSPage() {
     }
   }
 
-  const update = (itemId, patch) => setCart(prev => prev.map(line => line.item_id === itemId ? { ...line, ...patch } : line))
-  const remove = (itemId) => setCart(prev => prev.filter(line => line.item_id !== itemId))
+  const openOther = () => {
+    setOtherItem({ barcode: barcode.trim(), name: 'Other', quantity: 1, unit_price: '', unit_type: 'piece' })
+    setShowOther(true)
+  }
+
+  const addOther = (e) => {
+    e.preventDefault()
+    const unitPrice = Number(otherItem.unit_price || 0)
+    const quantity = Number(otherItem.quantity || 0)
+    if (!quantity || quantity <= 0) return toast.error('Enter a valid quantity')
+    if (!unitPrice || unitPrice <= 0) return toast.error('Enter a custom price')
+
+    setCart(prev => [
+      ...prev,
+      {
+        cart_id: `custom-${Date.now()}-${prev.length}`,
+        custom: true,
+        item_id: null,
+        name: otherItem.name.trim() || 'Other',
+        barcode: otherItem.barcode.trim(),
+        unit_type: otherItem.unit_type,
+        available: null,
+        unit_price: unitPrice,
+        quantity,
+        discount: 0,
+      },
+    ])
+    setBarcode('')
+    setShowOther(false)
+    setOtherItem({ barcode: '', name: 'Other', quantity: 1, unit_price: '', unit_type: 'piece' })
+    inputRef.current?.focus()
+  }
+
+  const update = (cartId, patch) => setCart(prev => prev.map(line => line.cart_id === cartId ? { ...line, ...patch } : line))
+  const remove = (cartId) => setCart(prev => prev.filter(line => line.cart_id !== cartId))
 
   const lineBase = (line) => Math.max(0, Number(line.unit_price || 0) * Number(line.quantity || 0))
   const percent = (value) => Math.min(100, Math.max(0, Number(value || 0)))
@@ -54,16 +101,20 @@ export default function POSPage() {
 
   const checkout = async () => {
     if (!cart.length) return toast.error('Cart is empty')
-    const over = cart.find(line => Number(line.quantity) > Number(line.available))
+    const over = cart.find(line => !line.custom && Number(line.quantity) > Number(line.available))
     if (over) return toast.error(`Insufficient stock for ${over.name}`)
     setCheckingOut(true)
     try {
       await api.post('/api/pos/sales', {
         cart_discount_percent: Number(cartDiscount || 0),
-        lines: cart.map(({ item_id, quantity, unit_price, discount_percent, discount }) => ({
+        lines: cart.map(({ custom, item_id, name, barcode, quantity, unit_price, unit_type, discount_percent, discount }) => ({
+          custom,
           item_id,
+          item_name: name,
+          barcode,
           quantity: Number(quantity),
           unit_price: Number(unit_price || 0),
+          unit_type,
           discount_percent: Number(discount_percent ?? discount ?? 0),
         })),
       })
@@ -89,7 +140,7 @@ export default function POSPage() {
         <p className="text-sm text-slate-500">Scan or type a barcode, adjust quantities and discounts, then checkout.</p>
       </div>
 
-      <form onSubmit={addByBarcode} className="bg-white border border-slate-200 rounded-lg p-4 flex gap-2">
+      <form onSubmit={addByBarcode} className="bg-white border border-slate-200 rounded-lg p-4 flex gap-2 flex-wrap">
         <div className="relative flex-1">
           <Barcode size={20} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
@@ -104,7 +155,45 @@ export default function POSPage() {
         <button className="px-4 rounded-md bg-emerald-700 text-white font-semibold hover:bg-emerald-800 inline-flex items-center gap-2">
           <ScanLine size={18} /> Add
         </button>
+        <button type="button" onClick={openOther} className="px-4 py-3 rounded-md border border-slate-300 text-slate-700 font-semibold hover:bg-slate-50 inline-flex items-center gap-2">
+          <PackagePlus size={18} /> Other
+        </button>
       </form>
+
+      {showOther && (
+        <form onSubmit={addOther} className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-semibold">Other item</h2>
+            <button type="button" onClick={() => setShowOther(false)} className="p-1 rounded hover:bg-slate-100"><X size={16} /></button>
+          </div>
+          <div className="grid md:grid-cols-[1fr_1fr_120px_140px_140px] gap-3">
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Barcode</label>
+              <input className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" value={otherItem.barcode} onChange={e => setOtherItem(prev => ({ ...prev, barcode: e.target.value }))} placeholder="Optional" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Name</label>
+              <input className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" value={otherItem.name} onChange={e => setOtherItem(prev => ({ ...prev, name: e.target.value }))} />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Quantity</label>
+              <input className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" type="number" step={otherItem.unit_type === 'kg' ? '0.001' : '1'} min="0" value={otherItem.quantity} onChange={e => setOtherItem(prev => ({ ...prev, quantity: e.target.value }))} />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Unit</label>
+              <select className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" value={otherItem.unit_type} onChange={e => setOtherItem(prev => ({ ...prev, unit_type: e.target.value }))}>
+                <option value="piece">Pieces</option>
+                <option value="kg">Kg</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Custom price</label>
+              <input className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" type="number" step="0.01" min="0" value={otherItem.unit_price} onChange={e => setOtherItem(prev => ({ ...prev, unit_price: e.target.value }))} required />
+            </div>
+          </div>
+          <button className="rounded-md bg-slate-900 text-white px-4 py-2 text-sm font-semibold hover:bg-slate-800">Add Other to Cart</button>
+        </form>
+      )}
 
       <div className="grid lg:grid-cols-[1fr_320px] gap-4">
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
@@ -122,17 +211,17 @@ export default function POSPage() {
             </thead>
             <tbody>
               {cart.map(line => (
-                <tr key={line.item_id} className="border-t border-slate-100">
+                <tr key={line.cart_id} className="border-t border-slate-100">
                   <td className="px-4 py-3">
-                    <p className="font-semibold">{line.name}</p>
+                    <p className="font-semibold">{line.name} {line.custom && <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">Other</span>}</p>
                     <p className="text-xs text-slate-500 font-mono">{line.barcode}</p>
                   </td>
-                  <td className="px-4 py-3">{qty(line.available, line.unit_type)}</td>
+                  <td className="px-4 py-3">{line.custom ? '-' : qty(line.available, line.unit_type)}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1">
-                      <button onClick={() => update(line.item_id, { quantity: Math.max(0, Number(line.quantity) - (line.unit_type === 'kg' ? 0.25 : 1)) })} className="p-1 rounded hover:bg-slate-100" type="button"><Minus size={14} /></button>
-                      <input className="w-20 rounded-md border border-slate-300 px-2 py-1 text-sm" type="number" step={line.unit_type === 'kg' ? '0.001' : '1'} min="0" value={line.quantity} onChange={e => update(line.item_id, { quantity: e.target.value })} />
-                      <button onClick={() => update(line.item_id, { quantity: Number(line.quantity) + (line.unit_type === 'kg' ? 0.25 : 1) })} className="p-1 rounded hover:bg-slate-100" type="button"><Plus size={14} /></button>
+                      <button onClick={() => update(line.cart_id, { quantity: Math.max(0, Number(line.quantity) - (line.unit_type === 'kg' ? 0.25 : 1)) })} className="p-1 rounded hover:bg-slate-100" type="button"><Minus size={14} /></button>
+                      <input className="w-20 rounded-md border border-slate-300 px-2 py-1 text-sm" type="number" step={line.unit_type === 'kg' ? '0.001' : '1'} min="0" value={line.quantity} onChange={e => update(line.cart_id, { quantity: e.target.value })} />
+                      <button onClick={() => update(line.cart_id, { quantity: Number(line.quantity) + (line.unit_type === 'kg' ? 0.25 : 1) })} className="p-1 rounded hover:bg-slate-100" type="button"><Plus size={14} /></button>
                     </div>
                   </td>
                   <td className="px-4 py-3">
@@ -142,17 +231,17 @@ export default function POSPage() {
                       step="0.01"
                       min="0"
                       value={line.unit_price}
-                      onChange={e => update(line.item_id, { unit_price: e.target.value })}
+                      onChange={e => update(line.cart_id, { unit_price: e.target.value })}
                     />
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1">
-                      <input className="w-20 rounded-md border border-slate-300 px-2 py-1 text-sm" type="number" step="0.01" min="0" max="100" value={line.discount_percent ?? line.discount} onChange={e => update(line.item_id, { discount_percent: e.target.value })} />
+                      <input className="w-20 rounded-md border border-slate-300 px-2 py-1 text-sm" type="number" step="0.01" min="0" max="100" value={line.discount_percent ?? line.discount} onChange={e => update(line.cart_id, { discount_percent: e.target.value })} />
                       <span className="text-xs text-slate-500">%</span>
                     </div>
                   </td>
                   <td className="px-4 py-3 font-semibold">{money(lineTotal(line))}</td>
-                  <td className="px-4 py-3"><button onClick={() => remove(line.item_id)} type="button" className="p-1.5 rounded hover:bg-red-50 text-red-600"><Trash2 size={15} /></button></td>
+                  <td className="px-4 py-3"><button onClick={() => remove(line.cart_id)} type="button" className="p-1.5 rounded hover:bg-red-50 text-red-600"><Trash2 size={15} /></button></td>
                 </tr>
               ))}
               {!cart.length && <tr><td colSpan="7" className="py-16 text-center text-slate-400">Scan an item to begin</td></tr>}

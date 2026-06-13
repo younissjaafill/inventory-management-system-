@@ -11,6 +11,44 @@ function stockState(item) {
   return 'green';
 }
 
+function dateKey(value) {
+  if (!value) return null;
+  if (typeof value === 'string') return value.slice(0, 10);
+  return value.toISOString().slice(0, 10);
+}
+
+function addMonths(date, months) {
+  const copy = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  copy.setUTCMonth(copy.getUTCMonth() + months);
+  return copy;
+}
+
+function expiryState(item) {
+  const expiry = dateKey(item.expiry_date);
+  if (!expiry) return 'none';
+  const todayKey = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Beirut',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  const today = new Date(`${todayKey}T00:00:00Z`);
+  const expiryDate = new Date(`${expiry}T00:00:00Z`);
+  if (expiryDate < today) return 'expired';
+  const warningDate = addMonths(today, Number(item.expiry_warning_months || 3));
+  if (expiryDate <= warningDate) return 'warning';
+  return 'ok';
+}
+
+function presentItem(item) {
+  return {
+    ...item,
+    expiry_date: dateKey(item.expiry_date),
+    stock_state: stockState(item),
+    expiry_state: expiryState(item),
+  };
+}
+
 async function logHistory(itemId, userId, action, oldValues, newValues, notes) {
   await db.query(
     `INSERT INTO item_history (item_id, user_id, action, old_values, new_values, notes)
@@ -69,7 +107,7 @@ router.get('/', authenticate, requirePermission('stock', 'pos', 'purchases'), as
   const count = await db.query(`SELECT COUNT(*) FROM items i ${where}`, params.slice(0, -2));
 
   res.json({
-    items: result.rows.map(item => ({ ...item, stock_state: stockState(item) })),
+    items: result.rows.map(presentItem),
     total: Number(count.rows[0].count),
     page: Number(page),
     limit: Number(limit),
@@ -79,7 +117,7 @@ router.get('/', authenticate, requirePermission('stock', 'pos', 'purchases'), as
 router.get('/barcode/:barcode', authenticate, requirePermission('pos', 'stock', 'purchases'), async (req, res) => {
   const result = await db.query(`${itemSelect} WHERE i.barcode = $1`, [req.params.barcode]);
   if (!result.rows[0]) return res.status(404).json({ error: 'Item not found for this barcode' });
-  res.json({ ...result.rows[0], stock_state: stockState(result.rows[0]) });
+  res.json(presentItem(result.rows[0]));
 });
 
 router.get('/:id', authenticate, requirePermission('stock', 'purchases'), async (req, res) => {
@@ -94,13 +132,14 @@ router.get('/:id', authenticate, requirePermission('stock', 'purchases'), async 
      LIMIT 30`,
     [req.params.id]
   );
-  res.json({ ...result.rows[0], stock_state: stockState(result.rows[0]), history: history.rows });
+  res.json({ ...presentItem(result.rows[0]), history: history.rows });
 });
 
 router.post('/', authenticate, requirePermission('stock'), async (req, res) => {
   const {
     name, sku, barcode, description, category_id, supplier_id, quantity = 0,
-    reorder_warning_quantity = 5, unit_type = 'piece', cost_price = 0, sale_price = 0,
+    reorder_warning_quantity = 5, expiry_date, expiry_warning_months = 3,
+    unit_type = 'piece', cost_price = 0, sale_price = 0,
     status = 'active', image_url, location, notes,
   } = req.body;
   if (!name) return res.status(400).json({ error: 'name is required' });
@@ -108,14 +147,15 @@ router.post('/', authenticate, requirePermission('stock'), async (req, res) => {
   const result = await db.query(
     `INSERT INTO items
      (name, sku, barcode, description, category_id, supplier_id, quantity, reorder_warning_quantity,
-      unit_type, cost_price, sale_price, status, image_url, location, notes)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      expiry_date, expiry_warning_months, unit_type, cost_price, sale_price, status, image_url, location, notes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
      RETURNING *`,
     [name, sku || null, barcode || null, description || null, category_id || null, supplier_id || null,
-      quantity, reorder_warning_quantity, unit_type, cost_price, sale_price, status, image_url || null, location || null, notes || null]
+      quantity, reorder_warning_quantity, expiry_date || null, Number(expiry_warning_months || 3),
+      unit_type, cost_price, sale_price, status, image_url || null, location || null, notes || null]
   );
   await logHistory(result.rows[0].id, req.user.id, 'created', null, result.rows[0], 'Item created');
-  res.status(201).json({ ...result.rows[0], stock_state: stockState(result.rows[0]) });
+  res.status(201).json(presentItem(result.rows[0]));
 });
 
 router.put('/:id', authenticate, requirePermission('stock'), async (req, res) => {
@@ -127,17 +167,19 @@ router.put('/:id', authenticate, requirePermission('stock'), async (req, res) =>
   const result = await db.query(
     `UPDATE items SET
       name=$1, sku=$2, barcode=$3, description=$4, category_id=$5, supplier_id=$6,
-      quantity=$7, reorder_warning_quantity=$8, unit_type=$9, cost_price=$10,
-      sale_price=$11, status=$12, image_url=$13, location=$14, notes=$15, updated_at=NOW()
-     WHERE id=$16
+      quantity=$7, reorder_warning_quantity=$8, expiry_date=$9, expiry_warning_months=$10,
+      unit_type=$11, cost_price=$12, sale_price=$13, status=$14, image_url=$15,
+      location=$16, notes=$17, updated_at=NOW()
+     WHERE id=$18
      RETURNING *`,
     [fields.name, fields.sku || null, fields.barcode || null, fields.description || null,
       fields.category_id || null, fields.supplier_id || null, fields.quantity,
-      fields.reorder_warning_quantity, fields.unit_type, fields.cost_price, fields.sale_price,
-      fields.status, fields.image_url || null, fields.location || null, fields.notes || null, req.params.id]
+      fields.reorder_warning_quantity, fields.expiry_date || null, Number(fields.expiry_warning_months || 3),
+      fields.unit_type, fields.cost_price, fields.sale_price, fields.status, fields.image_url || null,
+      fields.location || null, fields.notes || null, req.params.id]
   );
   await logHistory(req.params.id, req.user.id, 'updated', old, result.rows[0], null);
-  res.json({ ...result.rows[0], stock_state: stockState(result.rows[0]) });
+  res.json(presentItem(result.rows[0]));
 });
 
 router.patch('/:id/quantity', authenticate, requirePermission('stock'), async (req, res) => {
@@ -152,7 +194,7 @@ router.patch('/:id/quantity', authenticate, requirePermission('stock'), async (r
     [adjustment, req.params.id]
   );
   await logHistory(req.params.id, req.user.id, 'quantity_changed', { quantity: old.quantity }, { quantity: result.rows[0].quantity }, notes || null);
-  res.json({ ...result.rows[0], stock_state: stockState(result.rows[0]) });
+  res.json(presentItem(result.rows[0]));
 });
 
 router.delete('/:id', authenticate, requirePermission('stock'), async (req, res) => {

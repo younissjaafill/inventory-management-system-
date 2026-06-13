@@ -9,6 +9,7 @@ import {
   CreditCard,
   Plus,
   ReceiptText,
+  FileText,
   ShoppingBag,
   TrendingUp,
 } from 'lucide-react'
@@ -190,6 +191,7 @@ export default function DashboardPage() {
     { to: '/inventory', label: 'Add Item', icon: Plus },
     { to: '/purchases', label: 'New Purchase', icon: ShoppingBag },
     { to: '/expenses', label: 'Add Expense', icon: ReceiptText },
+    { to: '/reports', label: 'View Daily Report', icon: FileText },
   ]
 
   return (
@@ -200,7 +202,7 @@ export default function DashboardPage() {
           <p className="text-sm text-slate-500">Sales, stock movement, purchases, and expenses tracked in Lebanon time.</p>
           <p className="text-xs text-slate-400 mt-1">Current period: {summary?.period_label || periodLabels[period]} · Asia/Beirut</p>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
           {quick.map(({ to, label, icon: Icon }) => (
             <Link
               key={to + label}

@@ -27,6 +27,18 @@ function beirutDateInput(date = new Date()) {
   return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
+function beirutDatePlusMonths(months) {
+  const date = new Date();
+  date.setUTCMonth(date.getUTCMonth() + months);
+  return beirutDateInput(date);
+}
+
+function beirutDatePlusDays(days) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + days);
+  return beirutDateInput(date);
+}
+
 async function request(path, options = {}) {
   const headers = {
     'Content-Type': 'application/json',
@@ -148,6 +160,8 @@ test('core inventory, POS, purchase, expense, and dashboard calculations work en
       supplier_id: supplier.id,
       quantity: 24,
       reorder_warning_quantity: 12,
+      expiry_date: beirutDatePlusMonths(2),
+      expiry_warning_months: 3,
       unit_type: 'piece',
       cost_price: 1.10,
       sale_price: 1.75,
@@ -158,11 +172,16 @@ test('core inventory, POS, purchase, expense, and dashboard calculations work en
   created.itemId = item.id;
   assert.equal(Number(item.quantity), 24);
   assert.equal(item.stock_state, 'green');
+  assert.equal(item.expiry_state, 'warning');
+  assert.equal(item.expiry_warning_months, 3);
 
   const barcodeLookup = await request(`/api/items/barcode/${encodeURIComponent(`${RUN_ID}-100000002`)}`);
   assert.equal(barcodeLookup.id, item.id);
+  assert.equal(barcodeLookup.expiry_state, 'warning');
+  assert.equal(barcodeLookup.expiry_date, item.expiry_date);
 
   const baselineDashboard = await request('/api/dashboard/summary?period=day');
+  const baselineReport = await request(`/api/reports/summary?period=day&date=${beirutDateInput()}`);
 
   const sale = await request('/api/pos/sales', {
     method: 'POST',
@@ -222,6 +241,17 @@ test('core inventory, POS, purchase, expense, and dashboard calculations work en
   itemDetail = await request(`/api/items/${item.id}`);
   assert.equal(itemDetail.history.some(row => row.action === 'quantity_changed' && row.notes === `${RUN_ID} damaged stock`), true);
 
+  const expiredItem = await request(`/api/items/${item.id}`, {
+    method: 'PUT',
+    body: {
+      ...itemDetail,
+      expiry_date: beirutDatePlusDays(-1),
+      expiry_warning_months: 5,
+    },
+  });
+  assert.equal(expiredItem.expiry_state, 'expired');
+  assert.equal(expiredItem.expiry_warning_months, 5);
+
   const dashboard = await request('/api/dashboard/summary?period=day');
   assert.equal(round(number(dashboard.sales_period) - number(baselineDashboard.sales_period)), 2.7);
   assert.equal(round(number(dashboard.purchases_period) - number(baselineDashboard.purchases_period)), 6);
@@ -248,6 +278,19 @@ test('core inventory, POS, purchase, expense, and dashboard calculations work en
   assert.equal(Number(topSold.quantity), 2);
   assert.equal(Number(topSold.total), 3);
 
+  const dailyReport = await request(`/api/reports/summary?period=day&date=${beirutDateInput()}`);
+  assert.equal(round(number(dailyReport.sales_total) - number(baselineReport.sales_total)), 2.7);
+  assert.equal(round(number(dailyReport.expenses_total) - number(baselineReport.expenses_total)), 4.25);
+  assert.equal(round(number(dailyReport.supplier_payments_total) - number(baselineReport.supplier_payments_total)), 6);
+  assert.equal(round(number(dailyReport.pure_cash) - number(baselineReport.pure_cash)), -7.55);
+  assert.equal(dailyReport.top_sold.some(row => row.item_id === item.id), true);
+
+  const monthlyReport = await request(`/api/reports/summary?period=month&date=${beirutDateInput()}`);
+  assert.ok(number(monthlyReport.sales_total) >= number(dailyReport.sales_total));
+  assert.ok(number(monthlyReport.expenses_total) >= number(dailyReport.expenses_total));
+  assert.ok(number(monthlyReport.supplier_payments_total) >= number(dailyReport.supplier_payments_total));
+  assert.equal(monthlyReport.period, 'month');
+
   const sales = await request('/api/pos/sales');
   assert.equal(sales.some(row => row.id === sale.id && Number(row.total) === 2.7), true);
 
@@ -256,6 +299,33 @@ test('core inventory, POS, purchase, expense, and dashboard calculations work en
   assert.ok(dailySale, 'daily POS history should include the sale');
   assert.equal(dailySale.lines[0].item_name, `${RUN_ID} Puppy Chicken Cans 24 Pack`);
   assert.equal(Number(dailySale.lines[0].quantity), 2);
+
+  const beforeCustomItem = await request(`/api/items/${item.id}`);
+  const customSale = await request('/api/pos/sales', {
+    method: 'POST',
+    body: {
+      lines: [{
+        custom: true,
+        item_id: null,
+        item_name: `${RUN_ID} Other Walk-in Item`,
+        barcode: `${RUN_ID}-OTHER-001`,
+        quantity: 1,
+        unit_type: 'piece',
+        unit_price: 7.5,
+      }],
+    },
+  });
+  assert.equal(Number(customSale.total), 7.5);
+
+  const afterCustomItem = await request(`/api/items/${item.id}`);
+  assert.equal(Number(afterCustomItem.quantity), Number(beforeCustomItem.quantity));
+
+  const customDailySales = await request(`/api/pos/sales?date=${beirutDateInput()}`);
+  const customDailySale = customDailySales.find(row => row.id === customSale.id);
+  assert.ok(customDailySale, 'daily POS history should include the custom sale');
+  assert.equal(customDailySale.lines[0].item_id, null);
+  assert.equal(customDailySale.lines[0].item_name, `${RUN_ID} Other Walk-in Item`);
+  assert.equal(Number(customDailySale.lines[0].line_total), 7.5);
 
   const items = await request(`/api/items?q=${encodeURIComponent(RUN_ID)}&limit=10`);
   assert.equal(items.items.some(row => row.id === item.id), true);
