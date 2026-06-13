@@ -11,6 +11,7 @@ import PurchasesPage from './pages/PurchasesPage'
 import ExpensesPage from './pages/ExpensesPage'
 import ReportsPage from './pages/ReportsPage'
 import AdminPage from './pages/AdminPage'
+import MonthlyReportPage from './pages/MonthlyReportPage'
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated, loading } = useAuth()
@@ -50,6 +51,7 @@ export default function App() {
                   <Route path="/expenses" element={<PermissionRoute permission="expenses"><ExpensesPage /></PermissionRoute>} />
                   <Route path="/reports" element={<PermissionRoute permission="dashboard"><ReportsPage /></PermissionRoute>} />
                   <Route path="/admin" element={<PermissionRoute permission="admin"><AdminPage /></PermissionRoute>} />
+                  <Route path="/monthly-report" element={<PermissionRoute permission="monthly_report"><MonthlyReportPage /></PermissionRoute>} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
                 </div>

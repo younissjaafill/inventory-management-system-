@@ -13,6 +13,171 @@ function selectedDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value || '') ? value : null;
 }
 
+function selectedMonth(value) {
+  return /^\d{4}-\d{2}$/.test(value || '') ? `${value}-01` : null;
+}
+
+router.get('/monthly', authenticate, requirePermission('monthly_report'), async (req, res) => {
+  const monthDate = selectedMonth(req.query.month);
+  const saleLocalDate = `((s.created_at AT TIME ZONE 'UTC') AT TIME ZONE $2)::date`;
+  const purchasePaidLocalDate = `((p.paid_at AT TIME ZONE 'UTC') AT TIME ZONE $2)::date`;
+  const bounds = `
+    WITH input AS (
+      SELECT COALESCE($1::date, date_trunc('month', (CURRENT_TIMESTAMP AT TIME ZONE $2)::date)::date) AS selected_date
+    ),
+    bounds AS (
+      SELECT
+        date_trunc('month', selected_date)::date AS start_date,
+        (date_trunc('month', selected_date) + interval '1 month')::date AS end_date
+      FROM input
+    ),
+    days AS (
+      SELECT generate_series(bounds.start_date, bounds.end_date - interval '1 day', interval '1 day')::date AS day_date
+      FROM bounds
+    ),
+    sales_daily AS (
+      SELECT
+        ${saleLocalDate} AS day_date,
+        COALESCE(SUM(s.total),0)::numeric AS sales_total,
+        COUNT(s.id)::int AS sales_count
+      FROM sales s
+      CROSS JOIN bounds
+      WHERE ${saleLocalDate} >= bounds.start_date AND ${saleLocalDate} < bounds.end_date
+      GROUP BY ${saleLocalDate}
+    ),
+    expenses_daily AS (
+      SELECT
+        e.expense_date::date AS day_date,
+        COALESCE(SUM(e.amount),0)::numeric AS expenses_total,
+        COUNT(e.id)::int AS expenses_count
+      FROM expenses e
+      CROSS JOIN bounds
+      WHERE e.expense_date >= bounds.start_date AND e.expense_date < bounds.end_date
+      GROUP BY e.expense_date::date
+    ),
+    suppliers_daily AS (
+      SELECT
+        ${purchasePaidLocalDate} AS day_date,
+        COALESCE(SUM(p.total_cost),0)::numeric AS supplier_payments_total,
+        COUNT(p.id)::int AS supplier_payments_count
+      FROM purchases p
+      CROSS JOIN bounds
+      WHERE p.paid_status = 'paid'
+        AND p.paid_at IS NOT NULL
+        AND ${purchasePaidLocalDate} >= bounds.start_date
+        AND ${purchasePaidLocalDate} < bounds.end_date
+      GROUP BY ${purchasePaidLocalDate}
+    ),
+    margin_daily AS (
+      SELECT
+        ${saleLocalDate} AS day_date,
+        COALESCE(SUM(
+          (sl.unit_price - sl.unit_cost) * sl.quantity
+          - sl.discount
+          - CASE
+              WHEN s.subtotal > 0 THEN s.discount_total * (sl.line_total / s.subtotal)
+              ELSE 0
+            END
+        ),0)::numeric AS gross_margin_total
+      FROM sale_lines sl
+      JOIN sales s ON s.id = sl.sale_id
+      CROSS JOIN bounds
+      WHERE ${saleLocalDate} >= bounds.start_date AND ${saleLocalDate} < bounds.end_date
+      GROUP BY ${saleLocalDate}
+    ),
+    stock_daily AS (
+      SELECT
+        ${saleLocalDate} AS day_date,
+        COALESCE(SUM(sl.quantity),0)::numeric AS stock_output_total
+      FROM sale_lines sl
+      JOIN sales s ON s.id = sl.sale_id
+      CROSS JOIN bounds
+      WHERE ${saleLocalDate} >= bounds.start_date AND ${saleLocalDate} < bounds.end_date
+      GROUP BY ${saleLocalDate}
+    )
+  `;
+  const params = [monthDate, TZ];
+  const [periodInfo, dailyRows, topSold] = await Promise.all([
+    db.query(`${bounds} SELECT start_date, (end_date - interval '1 day')::date AS end_date FROM bounds`, params),
+    db.query(
+      `${bounds}
+       SELECT
+         days.day_date AS date,
+         EXTRACT(DAY FROM days.day_date)::int AS day,
+         COALESCE(sales_daily.sales_total,0)::numeric AS sales_total,
+         COALESCE(sales_daily.sales_count,0)::int AS sales_count,
+         COALESCE(expenses_daily.expenses_total,0)::numeric AS expenses_total,
+         COALESCE(expenses_daily.expenses_count,0)::int AS expenses_count,
+         COALESCE(suppliers_daily.supplier_payments_total,0)::numeric AS supplier_payments_total,
+         COALESCE(suppliers_daily.supplier_payments_count,0)::int AS supplier_payments_count,
+         COALESCE(margin_daily.gross_margin_total,0)::numeric AS gross_margin_total,
+         COALESCE(stock_daily.stock_output_total,0)::numeric AS stock_output_total,
+         (
+           COALESCE(sales_daily.sales_total,0)
+           - COALESCE(expenses_daily.expenses_total,0)
+           - COALESCE(suppliers_daily.supplier_payments_total,0)
+         )::numeric AS pure_cash
+       FROM days
+       LEFT JOIN sales_daily ON sales_daily.day_date = days.day_date
+       LEFT JOIN expenses_daily ON expenses_daily.day_date = days.day_date
+       LEFT JOIN suppliers_daily ON suppliers_daily.day_date = days.day_date
+       LEFT JOIN margin_daily ON margin_daily.day_date = days.day_date
+       LEFT JOIN stock_daily ON stock_daily.day_date = days.day_date
+       ORDER BY days.day_date ASC`,
+      params
+    ),
+    db.query(
+      `${bounds}
+       SELECT
+         sl.item_id,
+         sl.item_name,
+         sl.unit_type,
+         SUM(sl.quantity)::numeric AS quantity,
+         SUM(sl.line_total)::numeric AS total
+       FROM sale_lines sl
+       JOIN sales s ON s.id = sl.sale_id
+       CROSS JOIN bounds
+       WHERE ${saleLocalDate} >= bounds.start_date AND ${saleLocalDate} < bounds.end_date
+       GROUP BY sl.item_id, sl.item_name, sl.unit_type
+       ORDER BY total DESC, quantity DESC
+       LIMIT 10`,
+      params
+    ),
+  ]);
+
+  const totals = dailyRows.rows.reduce((sum, row) => ({
+    sales_total: sum.sales_total + Number(row.sales_total || 0),
+    sales_count: sum.sales_count + Number(row.sales_count || 0),
+    expenses_total: sum.expenses_total + Number(row.expenses_total || 0),
+    expenses_count: sum.expenses_count + Number(row.expenses_count || 0),
+    supplier_payments_total: sum.supplier_payments_total + Number(row.supplier_payments_total || 0),
+    supplier_payments_count: sum.supplier_payments_count + Number(row.supplier_payments_count || 0),
+    gross_margin_total: sum.gross_margin_total + Number(row.gross_margin_total || 0),
+    stock_output_total: sum.stock_output_total + Number(row.stock_output_total || 0),
+    pure_cash: sum.pure_cash + Number(row.pure_cash || 0),
+  }), {
+    sales_total: 0,
+    sales_count: 0,
+    expenses_total: 0,
+    expenses_count: 0,
+    supplier_payments_total: 0,
+    supplier_payments_count: 0,
+    gross_margin_total: 0,
+    stock_output_total: 0,
+    pure_cash: 0,
+  });
+
+  res.json({
+    period: 'month',
+    timezone: TZ,
+    start_date: periodInfo.rows[0].start_date,
+    end_date: periodInfo.rows[0].end_date,
+    totals,
+    days: dailyRows.rows,
+    top_sold: topSold.rows,
+  });
+});
+
 router.get('/summary', authenticate, requirePermission('dashboard'), async (req, res) => {
   const period = selectedPeriod(req.query.period);
   const date = selectedDate(req.query.date);

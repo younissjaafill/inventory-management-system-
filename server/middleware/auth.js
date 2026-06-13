@@ -9,6 +9,7 @@ const DEFAULT_STAFF_PERMISSIONS = {
   purchases: false,
   expenses: false,
   dashboard: false,
+  monthly_report: false,
   admin: false,
 };
 
@@ -20,6 +21,7 @@ function normalizePermissions(role, permissions = {}) {
       purchases: true,
       expenses: true,
       dashboard: true,
+      monthly_report: true,
       admin: true,
     };
   }

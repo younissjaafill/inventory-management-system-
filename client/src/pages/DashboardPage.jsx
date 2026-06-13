@@ -174,6 +174,9 @@ const periodLabels = {
   day: 'Today',
   week: 'This Week',
   month: 'This Month',
+  '3month': '3 Months',
+  '6month': '6 Months',
+  '9month': '9 Months',
   year: 'This Year',
 }
 
@@ -216,7 +219,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 w-fit max-w-full overflow-x-auto">
+      <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 w-fit max-w-full flex-wrap">
         <CalendarDays size={16} className="text-slate-500 shrink-0" />
         {Object.entries(periodLabels).map(([value, label]) => (
           <button

@@ -9,6 +9,7 @@ const adminPermissions = {
   purchases: true,
   expenses: true,
   dashboard: true,
+  monthly_report: true,
   admin: true,
 }
 
@@ -18,6 +19,7 @@ const staffDefaults = {
   purchases: false,
   expenses: false,
   dashboard: false,
+  monthly_report: false,
   admin: false,
 }
 

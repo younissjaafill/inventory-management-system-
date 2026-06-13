@@ -1,53 +1,7 @@
 const router = require('express').Router();
 const db = require('../db');
 const { authenticate, requirePermission } = require('../middleware/auth');
-
-function stockState(item) {
-  if (item.status !== 'active') return 'neutral';
-  const quantity = Number(item.quantity);
-  const warning = Number(item.reorder_warning_quantity);
-  if (quantity <= 0) return 'red';
-  if (quantity <= warning) return 'yellow';
-  return 'green';
-}
-
-function dateKey(value) {
-  if (!value) return null;
-  if (typeof value === 'string') return value.slice(0, 10);
-  return value.toISOString().slice(0, 10);
-}
-
-function addMonths(date, months) {
-  const copy = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  copy.setUTCMonth(copy.getUTCMonth() + months);
-  return copy;
-}
-
-function expiryState(item) {
-  const expiry = dateKey(item.expiry_date);
-  if (!expiry) return 'none';
-  const todayKey = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Beirut',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-  const today = new Date(`${todayKey}T00:00:00Z`);
-  const expiryDate = new Date(`${expiry}T00:00:00Z`);
-  if (expiryDate < today) return 'expired';
-  const warningDate = addMonths(today, Number(item.expiry_warning_months || 3));
-  if (expiryDate <= warningDate) return 'warning';
-  return 'ok';
-}
-
-function presentItem(item) {
-  return {
-    ...item,
-    expiry_date: dateKey(item.expiry_date),
-    stock_state: stockState(item),
-    expiry_state: expiryState(item),
-  };
-}
+const { stockState, dateKey, addMonths, expiryState, presentItem } = require('../utils/item-state');
 
 async function logHistory(itemId, userId, action, oldValues, newValues, notes) {
   await db.query(
@@ -115,7 +69,11 @@ router.get('/', authenticate, requirePermission('stock', 'pos', 'purchases'), as
 });
 
 router.get('/barcode/:barcode', authenticate, requirePermission('pos', 'stock', 'purchases'), async (req, res) => {
-  const result = await db.query(`${itemSelect} WHERE i.barcode = $1`, [req.params.barcode]);
+  const code = String(req.params.barcode || '').trim();
+  const result = await db.query(
+    `${itemSelect} WHERE trim(i.barcode) = $1 OR trim(i.sku) = $1`,
+    [code]
+  );
   if (!result.rows[0]) return res.status(404).json({ error: 'Item not found for this barcode' });
   res.json(presentItem(result.rows[0]));
 });
@@ -204,3 +162,8 @@ router.delete('/:id', authenticate, requirePermission('stock'), async (req, res)
 });
 
 module.exports = router;
+module.exports.stockState = stockState;
+module.exports.dateKey = dateKey;
+module.exports.addMonths = addMonths;
+module.exports.expiryState = expiryState;
+module.exports.presentItem = presentItem;

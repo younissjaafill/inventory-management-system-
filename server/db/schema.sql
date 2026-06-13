@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
   username VARCHAR(80) UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
   role VARCHAR(30) NOT NULL DEFAULT 'admin' CHECK (role IN ('admin','staff')),
-  permissions JSONB NOT NULL DEFAULT '{"pos": true, "stock": false, "purchases": false, "expenses": false, "dashboard": false, "admin": false}'::jsonb,
+  permissions JSONB NOT NULL DEFAULT '{"pos": true, "stock": false, "purchases": false, "expenses": false, "dashboard": false, "monthly_report": false, "admin": false}'::jsonb,
   active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMP DEFAULT NOW()
 );

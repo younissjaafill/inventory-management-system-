@@ -3,12 +3,21 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 require('express-async-errors');
+const logger = require('./utils/logger');
 
 const app = express();
 
 app.use(helmet());
 app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
 app.use(express.json());
+
+app.use((req, res, next) => {
+  const startedAt = Date.now();
+  res.on('finish', () => {
+    logger.info(`${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - startedAt}ms`);
+  });
+  next();
+});
 
 // Routes
 app.use('/api/auth',      require('./routes/auth'));
@@ -24,13 +33,13 @@ app.use('/api/users',      require('./routes/users'));
 
 // Global error handler
 app.use((err, req, res, next) => {
-  console.error(err);
+  logger.error(err);
   res.status(err.status || 500).json({ error: err.message || 'Server error' });
 });
 
 if (require.main === module) {
   const PORT = process.env.PORT || 4000;
-  app.listen(PORT, () => console.log(`Inventory Management Server running on port ${PORT}`));
+  app.listen(PORT, () => logger.info(`Inventory Management Server running on port ${PORT}`));
 }
 
 module.exports = app;

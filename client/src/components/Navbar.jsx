@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { BarChart3, Boxes, CreditCard, Menu, ReceiptText, ShoppingBag, WalletCards, X, LogOut, Store } from 'lucide-react'
+import { BarChart3, Boxes, CalendarRange, CreditCard, Menu, ReceiptText, ShoppingBag, WalletCards, X, LogOut, Store } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 const links = [
@@ -10,6 +10,7 @@ const links = [
   { to: '/purchases', label: 'Purchases', icon: ShoppingBag, permission: 'purchases' },
   { to: '/expenses', label: 'Expenses', icon: ReceiptText, permission: 'expenses' },
   { to: '/admin', label: 'Admin', icon: WalletCards, permission: 'admin' },
+  { to: '/monthly-report', label: 'Monthly Report', icon: CalendarRange, permission: 'monthly_report' },
 ]
 
 export default function Navbar() {
@@ -49,7 +50,12 @@ export default function Navbar() {
       </div>
 
       <div className="p-3 border-t border-slate-100">
-        <div className="mb-2 px-3 py-2 rounded-md bg-slate-50 text-sm text-slate-600 truncate">{user?.username}</div>
+        <div className="mb-2 px-3 py-2 rounded-md bg-slate-50 text-sm text-slate-600 flex items-center justify-between gap-2">
+          <span className="truncate">{user?.username}</span>
+          <span className="shrink-0 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold capitalize text-slate-500">
+            {user?.role || 'user'}
+          </span>
+        </div>
         <button onClick={signOut} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-red-600 hover:bg-red-50">
           <LogOut size={16} /> Sign out
         </button>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Barcode, CalendarDays, Minus, PackagePlus, Plus, ScanLine, Trash2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useApi } from '../hooks/useApi'
@@ -25,29 +25,60 @@ export default function POSPage() {
     fetchSalesHistory().catch(() => toast.error('Failed to load sales history'))
   }, [historyDate])
 
-  const addByBarcode = async (e) => {
-    e.preventDefault()
-    if (!barcode.trim()) return
-    try {
-      const res = await api.get(`/api/items/barcode/${encodeURIComponent(barcode.trim())}`)
-      const item = res.data
-      setCart(prev => {
-        const existing = prev.find(line => line.item_id === item.id)
-        const step = item.unit_type === 'kg' ? 0.25 : 1
-        if (existing) {
-          const nextQuantity = Number(existing.quantity) + step
-          if (nextQuantity > Number(existing.available)) {
-            toast.error(`Insufficient stock for ${existing.name}`)
-            return prev
-          }
-          return prev.map(line => line.item_id === item.id ? { ...line, quantity: nextQuantity } : line)
-        }
-        if (step > Number(item.quantity)) {
-          toast.error(`Insufficient stock for ${item.name}`)
+  const addItemToCart = useCallback((item) => {
+    setCart(prev => {
+      const existing = prev.find(line => line.item_id === item.id)
+      const step = item.unit_type === 'kg' ? 0.25 : 1
+      if (existing) {
+        const nextQuantity = Number(existing.quantity) + step
+        if (nextQuantity > Number(existing.available)) {
+          toast.error(`Insufficient stock for ${existing.name}`)
           return prev
         }
-        return [...prev, { cart_id: `item-${item.id}`, item_id: item.id, name: item.name, barcode: item.barcode, unit_type: item.unit_type, available: Number(item.quantity), unit_price: Number(item.sale_price), quantity: step, discount: 0 }]
-      })
+        return prev.map(line => line.item_id === item.id ? { ...line, quantity: nextQuantity } : line)
+      }
+      if (step > Number(item.quantity)) {
+        toast.error(`Insufficient stock for ${item.name}`)
+        return prev
+      }
+      return [...prev, { cart_id: `item-${item.id}`, item_id: item.id, name: item.name, barcode: item.barcode, unit_type: item.unit_type, available: Number(item.quantity), unit_price: Number(item.sale_price), quantity: step, discount: 0 }]
+    })
+  }, [])
+
+  const lookupAndAddBarcode = useCallback(async (code) => {
+    const res = await api.get(`/api/items/barcode/${encodeURIComponent(code)}`)
+    addItemToCart(res.data)
+  }, [api, addItemToCart])
+
+  useEffect(() => {
+    const code = barcode.trim()
+    if (!code) return undefined
+
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      try {
+        await lookupAndAddBarcode(code)
+        if (!cancelled) {
+          setBarcode('')
+          inputRef.current?.focus()
+        }
+      } catch {
+        // Keep typing quiet; the Add button still reports invalid barcodes explicitly.
+      }
+    }, 250)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [barcode, lookupAndAddBarcode])
+
+  const addByBarcode = async (e) => {
+    e.preventDefault()
+    const code = barcode.trim()
+    if (!code) return
+    try {
+      await lookupAndAddBarcode(code)
       setBarcode('')
       inputRef.current?.focus()
     } catch (err) {

@@ -7,6 +7,9 @@ const PERIODS = {
   day: { trunc: 'day', label: 'Today' },
   week: { trunc: 'week', label: 'This Week' },
   month: { trunc: 'month', label: 'This Month' },
+  '3month': { months: 3, label: '3 Months' },
+  '6month': { months: 6, label: '6 Months' },
+  '9month': { months: 9, label: '9 Months' },
   year: { trunc: 'year', label: 'This Year' },
 };
 
@@ -16,31 +19,49 @@ function periodBounds(period) {
     selected,
     label: PERIODS[selected].label,
     trunc: PERIODS[selected].trunc,
+    months: PERIODS[selected].months,
   };
 }
 
-function bucketSql(period) {
-  if (period === 'day') return { step: '1 hour', format: 'HH12 AM' };
-  if (period === 'week') return { step: '1 day', format: 'Dy' };
-  if (period === 'year') return { step: '1 month', format: 'Mon' };
-  return { step: '1 day', format: 'DD Mon' };
-}
-
-router.get('/summary', authenticate, requirePermission('dashboard'), async (req, res) => {
-  const { selected, label, trunc } = periodBounds(req.query.period);
-  const bucket = bucketSql(selected);
-  const bounds = `
+function boundsSql(months) {
+  if (months) {
+    return `
+      WITH bounds AS (
+        SELECT
+          (date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE $1) - (($2::int - 1) || ' months')::interval)::timestamp AS start_at,
+          (date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE $1) + interval '1 month')::timestamp AS end_at
+      )
+    `;
+  }
+  return `
     WITH bounds AS (
       SELECT
         date_trunc($1, CURRENT_TIMESTAMP AT TIME ZONE $2)::timestamp AS start_at,
         (date_trunc($1, CURRENT_TIMESTAMP AT TIME ZONE $2) + ('1 ' || $1)::interval)::timestamp AS end_at
     )
   `;
-  const saleLocalTime = `((s.created_at AT TIME ZONE 'UTC') AT TIME ZONE $2)`;
+}
+
+function bucketSql(period, months) {
+  if (period === 'day') return { step: '1 hour', format: 'HH12 AM' };
+  if (period === 'week') return { step: '1 day', format: 'Dy' };
+  if (months) return { step: '1 month', format: 'Mon YYYY' };
+  if (period === 'year') return { step: '1 month', format: 'Mon' };
+  return { step: '1 day', format: 'DD Mon' };
+}
+
+router.get('/summary', authenticate, requirePermission('dashboard'), async (req, res) => {
+  const { selected, label, trunc, months } = periodBounds(req.query.period);
+  const bucket = bucketSql(selected, months);
+  const bounds = boundsSql(months);
+  const params = months ? [TZ, months] : [trunc, TZ];
+  const tzParam = months ? '$1' : '$2';
+  const saleLocalTime = `((s.created_at AT TIME ZONE 'UTC') AT TIME ZONE ${tzParam})`;
   const saleDisplayTime = `((s.created_at AT TIME ZONE 'UTC') AT TIME ZONE '${TZ}')`;
-  const purchaseLocalTime = `((p.purchased_at AT TIME ZONE 'UTC') AT TIME ZONE $2)`;
+  const purchaseLocalTime = `((p.purchased_at AT TIME ZONE 'UTC') AT TIME ZONE ${tzParam})`;
   const saleInPeriod = `((${saleLocalTime} >= bounds.start_at AND ${saleLocalTime} < bounds.end_at) OR (s.created_at >= bounds.start_at AND s.created_at < bounds.end_at))`;
   const purchaseInPeriod = `((${purchaseLocalTime} >= bounds.start_at AND ${purchaseLocalTime} < bounds.end_at) OR (p.purchased_at >= bounds.start_at AND p.purchased_at < bounds.end_at))`;
+  const bucketTrunc = months || selected === 'year' ? 'month' : selected === 'day' ? 'hour' : 'day';
 
   const [
     salesPeriod,
@@ -55,14 +76,14 @@ router.get('/summary', authenticate, requirePermission('dashboard'), async (req,
     trend,
     recentSales,
   ] = await Promise.all([
-    db.query(`${bounds} SELECT COALESCE(SUM(s.total),0)::numeric AS total FROM sales s, bounds WHERE ${saleInPeriod}`, [trunc, TZ]),
-    db.query(`${bounds} SELECT COALESCE(SUM(p.total_cost),0)::numeric AS total FROM purchases p, bounds WHERE ${purchaseInPeriod}`, [trunc, TZ]),
+    db.query(`${bounds} SELECT COALESCE(SUM(s.total),0)::numeric AS total FROM sales s, bounds WHERE ${saleInPeriod}`, params),
+    db.query(`${bounds} SELECT COALESCE(SUM(p.total_cost),0)::numeric AS total FROM purchases p, bounds WHERE ${purchaseInPeriod}`, params),
     db.query(
       `${bounds}
        SELECT COALESCE(SUM(amount),0)::numeric AS total
        FROM expenses, bounds
        WHERE expense_date >= bounds.start_at::date AND expense_date < bounds.end_at::date`,
-      [trunc, TZ]
+      params
     ),
     db.query(
       `SELECT
@@ -86,7 +107,7 @@ router.get('/summary', authenticate, requirePermission('dashboard'), async (req,
        JOIN sales s ON s.id = sl.sale_id
        CROSS JOIN bounds
        WHERE ${saleInPeriod}`,
-      [trunc, TZ]
+      params
     ),
     db.query(
       `${bounds}
@@ -95,7 +116,7 @@ router.get('/summary', authenticate, requirePermission('dashboard'), async (req,
        JOIN purchases p ON p.id = pl.purchase_id
        CROSS JOIN bounds
        WHERE ${purchaseInPeriod}`,
-      [trunc, TZ]
+      params
     ),
     db.query(
       `${bounds}
@@ -104,7 +125,7 @@ router.get('/summary', authenticate, requirePermission('dashboard'), async (req,
        JOIN sales s ON s.id = sl.sale_id
        CROSS JOIN bounds
        WHERE ${saleInPeriod}`,
-      [trunc, TZ]
+      params
     ),
     db.query(
       `${bounds}
@@ -121,7 +142,7 @@ router.get('/summary', authenticate, requirePermission('dashboard'), async (req,
        GROUP BY sl.item_id, sl.item_name, sl.unit_type
        ORDER BY quantity DESC, total DESC
        LIMIT 8`,
-      [trunc, TZ]
+      params
     ),
     db.query(
       `${bounds},
@@ -151,10 +172,11 @@ router.get('/summary', authenticate, requirePermission('dashboard'), async (req,
        LEFT JOIN sales_by_bucket ON sales_by_bucket.bucket_at = buckets.bucket_at
        LEFT JOIN expenses_by_bucket ON expenses_by_bucket.bucket_at = buckets.bucket_at
        ORDER BY buckets.bucket_at ASC`,
-      [trunc, TZ, bucket.step, selected === 'year' ? 'month' : selected === 'day' ? 'hour' : 'day', bucket.format]
+      [...params, bucket.step, bucketTrunc, bucket.format]
     ),
     db.query(
-      `SELECT
+      `${bounds}
+       SELECT
          s.*,
          to_char(${saleDisplayTime}, 'Mon DD, YYYY') AS created_at_display,
          COUNT(sl.id)::int AS line_count,
@@ -168,9 +190,12 @@ router.get('/summary', authenticate, requirePermission('dashboard'), async (req,
          ) ORDER BY sl.id) FILTER (WHERE sl.id IS NOT NULL), '[]') AS lines
        FROM sales s
        LEFT JOIN sale_lines sl ON sl.sale_id = s.id
+       CROSS JOIN bounds
+       WHERE ${saleInPeriod}
        GROUP BY s.id
        ORDER BY s.created_at DESC
-       LIMIT 6`
+       LIMIT 6`,
+      params
     ),
   ]);
 
